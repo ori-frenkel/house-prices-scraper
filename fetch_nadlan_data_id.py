@@ -24,22 +24,13 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 DRIVER_PATH = 'drivers\\chromedriver-win64\\chromedriver.exe'
-CITY_NAME = "חיפה"
-NEIGHBORHOODS = [
-    "תל עמל", "שער העלייה", "זיו", "רמת שאול", "רמת ספיר", "רמת חן", "רמת ויזניץ", "רמת התשבי",
-    "רמת הדר", "רמת גולדה", "רמת בן גוריון", "רמת בגין", "רמת אשכול", "אוניברסיטת חיפה",
-    "רמת אלמוגי", "רמת אלון", "רמות רמז", "רוממה", "קרית הטכניון", "קריית אליעזר", "קריית אליהו",
-    "קרית חיים מערבית", "קרית חיים מזרחית", "עין הים", "סביוני הכרמל", "נמל חיפה", "נווה שאנן",
-    "נווה פז", "נווה דוד", "נוה יוסף", "מרכז הכרמל", "אזור תעשיה מפרץ", "כרמליה", "כרמל צרפתי",
-    "כרמל מערבי", "כבביר", "יזרעאליה", "חליסה", "חיפה אל עתיקה", "ורדיה", "ואדי סאליב",
-    "ואדי ניסנאס", "העיר התחתית", "המושבה הגרמנית", "הוד הכרמל-דניה", "גבעת זמר", "בת גלים",
-    "אחוזה", "אזור תעשיה חוף שמן", "אזור הקישון", "הדר", "גבעת דאונס", "קריית שפרינצק",
-    "מרכז תעשיות מדע", "בבנייה", "רמת הנשיא", "קריית שמואל"
+NEIGHBORHOOD_IDS = [
+    {"id": "65210993", "name": "נווה פז"}
 ]
 CHECKPOINT_INTERVAL = 100  # Save every 100 records
 CHECKPOINT_DIR = 'checkpoints'
 DATA_DIR = 'data/gov'
-MAX_WORKERS = 4 # len(NEIGHBORHOODS)  # desired parallel instances
+MAX_WORKERS = len(NEIGHBORHOOD_IDS)  # One thread per neighborhood
 MAX_PAGES = 100  # Maximum number of pages to process
 
 # Create necessary directories
@@ -81,7 +72,7 @@ def create_browser():
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
     options.add_argument('--remote-debugging-port=0')  # Use random port for each instance
-
+    
     browser = webdriver.Chrome(service=service, options=options)
     browser.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     browser.set_window_size(1500, 1000)
@@ -95,43 +86,43 @@ def safe_get(features, idx):
 def extract_multiple_transactions(features, base_row_data):
     """Extract multiple transactions from a single row, including the original"""
     transactions = []
-
+    
     # First, always add the original transaction (this is the base row data)
     transactions.append(base_row_data.copy())
-
+    
     # Then check for additional transactions starting from index 8
     transaction_index = 0
     while True:
         date_idx = 8 + (transaction_index * 2)
         price_idx = 9 + (transaction_index * 2)
-
+        
         transaction_date = safe_get(features, date_idx)
         transaction_price = safe_get(features, price_idx)
-
+        
         # If we get empty strings, we've reached the end
         if not transaction_date and not transaction_price:
             break
-
+            
         # Create a new row with the base data but updated date and price
         additional_transaction = base_row_data.copy()
-
+        
         # Update with the specific transaction data
         if transaction_date:
             additional_transaction['תאריך עסקה'] = transaction_date
         if transaction_price:
             additional_transaction['מחיר'] = transaction_price
-
+            
         transactions.append(additional_transaction)
         transaction_index += 1
-
+    
     return transactions
 
 
-def save_checkpoint(data, seen_hashes, checkpoint_num, neighborhood):
+def save_checkpoint(data, seen_hashes, checkpoint_num, neighborhood_name):
     """Save checkpoint with both data and seen hashes - thread-safe"""
     with checkpoint_lock:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        checkpoint_file = os.path.join(CHECKPOINT_DIR, f'checkpoint_{neighborhood}_{timestamp}_{checkpoint_num}.json')
+        checkpoint_file = os.path.join(CHECKPOINT_DIR, f'checkpoint_{neighborhood_name}_{timestamp}_{checkpoint_num}.json')
         checkpoint_data = {
             'data': data,
             'seen_hashes': list(seen_hashes),
@@ -140,13 +131,13 @@ def save_checkpoint(data, seen_hashes, checkpoint_num, neighborhood):
         }
         with open(checkpoint_file, 'w', encoding='utf-8') as f:
             json.dump(checkpoint_data, f, ensure_ascii=False, indent=2)
-        thread_safe_log(f"Saved checkpoint {checkpoint_num} with {len(data)} unique records for {neighborhood}")
+        thread_safe_log(f"Saved checkpoint {checkpoint_num} with {len(data)} unique records for {neighborhood_name}")
 
 
-def load_latest_checkpoint(neighborhood):
+def load_latest_checkpoint(neighborhood_name):
     """Load the latest checkpoint with seen hashes - thread-safe"""
     with checkpoint_lock:
-        checkpoint_files = [f for f in os.listdir(CHECKPOINT_DIR) if f.startswith(f'checkpoint_{neighborhood}_')]
+        checkpoint_files = [f for f in os.listdir(CHECKPOINT_DIR) if f.startswith(f'checkpoint_{neighborhood_name}_')]
         if not checkpoint_files:
             return None, set(), 0
 
@@ -168,44 +159,11 @@ def load_latest_checkpoint(neighborhood):
                 seen_hashes = set(checkpoint_data.get('seen_hashes', []))
 
             thread_safe_log(
-                f"Loaded checkpoint {checkpoint_num} with {len(data)} records and {len(seen_hashes)} seen hashes for {neighborhood}")
+                f"Loaded checkpoint {checkpoint_num} with {len(data)} records and {len(seen_hashes)} seen hashes for {neighborhood_name}")
             return data, seen_hashes, checkpoint_num
         except Exception as e:
             thread_safe_log(f"Error loading checkpoint: {e}", 'error')
             return None, set(), 0
-
-
-def perform_search(browser, search_query):
-    """Perform the search using the input field"""
-    try:
-        # Wait for the search input to be present
-        search_input = wait(browser, 10).until(
-            EC.presence_of_element_located((By.ID, "myInput2"))
-        )
-
-        # Clear any existing text and enter the search query
-        search_input.clear()
-        time.sleep(0.5)
-        search_input.send_keys(search_query)
-        time.sleep(1)  # Wait for suggestions to appear
-
-        # Press Enter to submit the search
-        search_input.send_keys(Keys.RETURN)
-        time.sleep(3)  # Wait for the search results to load
-
-        # Verify search results loaded
-        try:
-            wait(browser, 10).until(
-                EC.presence_of_element_located((By.CLASS_NAME, "mainTable"))
-            )
-            return True
-        except:
-            thread_safe_log("Search results did not load properly", 'error')
-            return False
-
-    except Exception as e:
-        thread_safe_log(f"Error performing search: {e}", 'error')
-        return False
 
 
 def wait_for_page_load(browser, timeout=10):
@@ -220,37 +178,45 @@ def wait_for_page_load(browser, timeout=10):
         return False
 
 
-def process_neighborhood(neighborhood):
-    """Process a single neighborhood with duplicate detection and multiple transactions"""
-    search_query = f"{CITY_NAME} {neighborhood}"
-    thread_safe_log(f"Processing neighborhood: {neighborhood}")
+def process_neighborhood(neighborhood_data):
+    """Process a single neighborhood using direct URL navigation"""
+    neighborhood_id = neighborhood_data["id"]
+    neighborhood_name = neighborhood_data["name"]
+    
+    thread_safe_log(f"Processing neighborhood: {neighborhood_name} (ID: {neighborhood_id})")
 
     browser = None
     try:
         # Load existing data and seen hashes
-        all_data, seen_hashes, checkpoint_num = load_latest_checkpoint(neighborhood)
+        all_data, seen_hashes, checkpoint_num = load_latest_checkpoint(neighborhood_name)
         if all_data is None:
             all_data = []
             seen_hashes = set()
             checkpoint_num = 0
 
         initial_count = len(all_data)
-        thread_safe_log(f"Starting with {initial_count} existing records for {neighborhood}")
+        thread_safe_log(f"Starting with {initial_count} existing records for {neighborhood_name}")
 
         # Create browser instance for this thread
         browser = create_browser()
-        url = 'https://www.nadlan.gov.il/'
-        thread_safe_log(f"Accessing URL: {url} for {neighborhood}")
+        
+        # Navigate directly to the neighborhood deals page
+        url = f'https://www.nadlan.gov.il/?view=neighborhood&id={neighborhood_id}&page=deals'
+        thread_safe_log(f"Accessing URL: {url}")
         browser.get(url)
 
         # Wait for page to load completely
         if not wait_for_page_load(browser):
-            thread_safe_log(f"Initial page load failed for {neighborhood}", 'error')
+            thread_safe_log(f"Initial page load failed for {neighborhood_name}", 'error')
             return len(all_data)
 
-        # Perform the search
-        if not perform_search(browser, search_query):
-            thread_safe_log(f"Failed to perform search for {neighborhood}. Skipping.", 'error')
+        # Wait for the main table to load
+        try:
+            wait(browser, 10).until(
+                EC.presence_of_element_located((By.CLASS_NAME, "mainTable"))
+            )
+        except:
+            thread_safe_log(f"Main table did not load for {neighborhood_name}", 'error')
             return len(all_data)
 
         records_since_last_checkpoint = 0
@@ -260,11 +226,11 @@ def process_neighborhood(neighborhood):
         new_records_this_session = 0
 
         while has_next and page_num <= MAX_PAGES:
-            thread_safe_log(f"Processing page {page_num} for {neighborhood}")
+            thread_safe_log(f"Processing page {page_num} for {neighborhood_name}")
 
             # Wait for page to load after navigation
             if not wait_for_page_load(browser):
-                thread_safe_log(f"Page {page_num} failed to load properly for {neighborhood}", 'error')
+                thread_safe_log(f"Page {page_num} failed to load properly for {neighborhood_name}", 'error')
                 break
 
             # Find the table with retries
@@ -276,20 +242,19 @@ def process_neighborhood(neighborhood):
                         table = tables[0]
                         break
                 except StaleElementReferenceException:
-                    thread_safe_log(f"Retrying to find mainTable (attempt {retry + 1}/3) for {neighborhood}...",
-                                    'warning')
+                    thread_safe_log(f"Retrying to find mainTable (attempt {retry + 1}/3) for {neighborhood_name}...", 'warning')
                     time.sleep(2)
 
             if not table:
-                thread_safe_log(f"Could not find mainTable after retries for {neighborhood}. Stopping.", 'error')
+                thread_safe_log(f"Could not find mainTable after retries for {neighborhood_name}. Stopping.", 'error')
                 break
 
             # Get all rows
             try:
                 sell_row_data = table.find_elements(By.CLASS_NAME, "mainTable__row")
-                thread_safe_log(f"Found {len(sell_row_data)} rows on page {page_num} for {neighborhood}")
+                thread_safe_log(f"Found {len(sell_row_data)} rows on page {page_num} for {neighborhood_name}")
             except Exception as e:
-                thread_safe_log(f"Error finding rows for {neighborhood}: {e}", 'error')
+                thread_safe_log(f"Error finding rows for {neighborhood_name}: {e}", 'error')
                 break
 
             # Process each row (skip header row)
@@ -315,7 +280,7 @@ def process_neighborhood(neighborhood):
                     # Expand row for additional details
                     arrows = sell_row_data[i].find_elements(By.CLASS_NAME, "collapseArrow")
                     if not arrows:
-                        thread_safe_log(f"No collapse arrow found for row {i} in {neighborhood}", 'warning')
+                        thread_safe_log(f"No collapse arrow found for row {i} in {neighborhood_name}", 'warning')
                         continue
 
                     arrow = arrows[0]
@@ -327,19 +292,19 @@ def process_neighborhood(neighborhood):
                         inner_containers = table.find_elements(By.CLASS_NAME, "innerTablesContainer")
                         if inner_containers:
                             expanded_features = inner_containers[0].find_elements(By.CLASS_NAME, "innerTable__cell")
-
+                            
                             # Add the additional property details to base_row_data
                             base_row_data.update({
                                 'שנת בנייה': safe_get(expanded_features, 3),
                                 'מחיר למ"ר': safe_get(expanded_features, 4),
                                 'קומות במבנה': safe_get(expanded_features, 5)
                             })
-
+                            
                             # Extract all transactions (original + additional ones)
                             transactions = extract_multiple_transactions(expanded_features, base_row_data)
-
+                            
                     except Exception as e:
-                        thread_safe_log(f"Could not get expanded details for row {i} in {neighborhood}: {e}", 'warning')
+                        thread_safe_log(f"Could not get expanded details for row {i} in {neighborhood_name}: {e}", 'warning')
                         # If expansion fails, just use the original row
                         transactions = [base_row_data]
 
@@ -364,11 +329,11 @@ def process_neighborhood(neighborhood):
                     # Save checkpoint periodically
                     if records_since_last_checkpoint >= CHECKPOINT_INTERVAL:
                         checkpoint_num += 1
-                        save_checkpoint(all_data, seen_hashes, checkpoint_num, neighborhood)
+                        save_checkpoint(all_data, seen_hashes, checkpoint_num, neighborhood_name)
                         records_since_last_checkpoint = 0
 
                 except Exception as e:
-                    thread_safe_log(f"Error processing row {i} on page {page_num} for {neighborhood}: {e}", 'error')
+                    thread_safe_log(f"Error processing row {i} on page {page_num} for {neighborhood_name}: {e}", 'error')
                     continue
 
             # Check for next page
@@ -384,23 +349,23 @@ def process_neighborhood(neighborhood):
 
                         # Click next button
                         browser.execute_script("arguments[0].click();", next_button)
-                        thread_safe_log(f"Navigated to page {page_num + 1} for {neighborhood}")
+                        thread_safe_log(f"Navigated to page {page_num + 1} for {neighborhood_name}")
                         time.sleep(3)  # Wait for navigation
 
                         page_num += 1
                         has_next = (page_num <= MAX_PAGES)
                     else:
-                        thread_safe_log(f"Next button not available - reached end for {neighborhood}")
+                        thread_safe_log(f"Next button not available - reached end for {neighborhood_name}")
                 else:
-                    thread_safe_log(f"No next button found - reached end for {neighborhood}")
+                    thread_safe_log(f"No next button found - reached end for {neighborhood_name}")
             except Exception as e:
-                thread_safe_log(f"Error navigating to next page for {neighborhood}: {e}", 'error')
+                thread_safe_log(f"Error navigating to next page for {neighborhood_name}: {e}", 'error')
                 has_next = False
 
         # Save final checkpoint
         if records_since_last_checkpoint > 0:
             checkpoint_num += 1
-            save_checkpoint(all_data, seen_hashes, checkpoint_num, neighborhood)
+            save_checkpoint(all_data, seen_hashes, checkpoint_num, neighborhood_name)
 
         # Save final CSV
         if all_data:
@@ -408,10 +373,10 @@ def process_neighborhood(neighborhood):
             df = pd.DataFrame(all_data)
             df_unique = df.drop_duplicates(subset=['כתובת', 'תאריך עסקה', 'מחיר', 'גוש/חלקה/תת-חלקה'])
 
-            csv_path = f'{DATA_DIR}/{neighborhood}.csv'
+            csv_path = f'{DATA_DIR}/{neighborhood_name}.csv'
             df_unique.to_csv(csv_path, index=False, encoding='utf-8-sig')
 
-            thread_safe_log(f"Completed {neighborhood}:")
+            thread_safe_log(f"Completed {neighborhood_name}:")
             thread_safe_log(f"  - Total unique records: {len(df_unique)}")
             thread_safe_log(f"  - New records this session: {new_records_this_session}")
             thread_safe_log(f"  - Duplicates skipped: {duplicates_found}")
@@ -420,11 +385,11 @@ def process_neighborhood(neighborhood):
 
             return len(df_unique)
         else:
-            thread_safe_log(f"No data was collected for {neighborhood}", 'warning')
+            thread_safe_log(f"No data was collected for {neighborhood_name}", 'warning')
             return 0
 
     except Exception as e:
-        thread_safe_log(f"Error processing neighborhood {neighborhood}: {e}", 'error')
+        thread_safe_log(f"Error processing neighborhood {neighborhood_name}: {e}", 'error')
         return 0
     finally:
         if browser:
@@ -436,8 +401,9 @@ def process_neighborhood(neighborhood):
 
 def main():
     """Main function to process all neighborhoods in parallel using ThreadPoolExecutor"""
-    thread_safe_log(f"Starting multi-threaded scraper for {len(NEIGHBORHOODS)} neighborhoods")
-    thread_safe_log(f"Neighborhoods: {', '.join(NEIGHBORHOODS)}")
+    thread_safe_log(f"Starting multi-threaded scraper for {len(NEIGHBORHOOD_IDS)} neighborhoods")
+    neighborhood_names = [n["name"] for n in NEIGHBORHOOD_IDS]
+    thread_safe_log(f"Neighborhoods: {', '.join(neighborhood_names)}")
     thread_safe_log(f"Max concurrent threads: {MAX_WORKERS}")
 
     total_records = 0
@@ -447,26 +413,26 @@ def main():
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         # Submit all neighborhood processing tasks
         future_to_neighborhood = {
-            executor.submit(process_neighborhood, neighborhood): neighborhood
-            for neighborhood in NEIGHBORHOODS
+            executor.submit(process_neighborhood, neighborhood_data): neighborhood_data["name"]
+            for neighborhood_data in NEIGHBORHOOD_IDS
         }
 
         # Collect results as they complete
         for future in as_completed(future_to_neighborhood):
-            neighborhood = future_to_neighborhood[future]
+            neighborhood_name = future_to_neighborhood[future]
             try:
                 records = future.result()
-                results[neighborhood] = records
+                results[neighborhood_name] = records
                 total_records += records
-                thread_safe_log(f"Completed {neighborhood}: {records} records")
+                thread_safe_log(f"Completed {neighborhood_name}: {records} records")
             except Exception as e:
-                thread_safe_log(f"Failed to process {neighborhood}: {e}", 'error')
-                results[neighborhood] = 0
+                thread_safe_log(f"Failed to process {neighborhood_name}: {e}", 'error')
+                results[neighborhood_name] = 0
 
     thread_safe_log(f"Multi-threaded scraping completed!")
     thread_safe_log(f"Results summary:")
-    for neighborhood, count in results.items():
-        thread_safe_log(f"  - {neighborhood}: {count} records")
+    for neighborhood_name, count in results.items():
+        thread_safe_log(f"  - {neighborhood_name}: {count} records")
     thread_safe_log(f"Total unique records collected: {total_records}")
     thread_safe_log(f"Data saved in: {DATA_DIR}")
     thread_safe_log(f"Checkpoints saved in: {CHECKPOINT_DIR}")
