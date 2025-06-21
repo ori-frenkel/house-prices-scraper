@@ -25,19 +25,13 @@ logger = logging.getLogger(__name__)
 # Configuration
 DRIVER_PATH = 'drivers\\chromedriver-win64\\chromedriver.exe'
 NEIGHBORHOOD_IDS = [
-    {"id": "65210858", "name": "רמת הדר"},
-    {"id": "65210892", "name": "רמת אשכול"},
-    {"id": "65210891", "name": "רמת בגין"},
-    {"id": "65210857", "name": "רמת התשבי"},
-    {"id": "65210856", "name": "רמת ויזניץ"},
-    {"id": "65210855", "name": "רמת חן"},
-    {"id": "65210854", "name": "רמת ספיר"},
-    {"id": "65210819", "name": "רמת תל עמל"},
+    {"id": "65210928", "name": "קרית חיים מערבית"},
+    {"id": "65210995", "name": "נוה יוסיף"},
 ]
 CHECKPOINT_INTERVAL = 100  # Save every 100 records
 CHECKPOINT_DIR = 'checkpoints'
 DATA_DIR = 'data/gov'
-MAX_WORKERS = 4  # len(NEIGHBORHOOD_IDS)  # One thread per neighborhood
+MAX_WORKERS = 2 # len(NEIGHBORHOOD_IDS)  # One thread per neighborhood
 MAX_PAGES = 100  # Maximum number of pages to process
 
 # Create necessary directories
@@ -79,7 +73,7 @@ def create_browser():
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
     options.add_argument('--remote-debugging-port=0')  # Use random port for each instance
-
+    
     browser = webdriver.Chrome(service=service, options=options)
     browser.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     browser.set_window_size(1500, 1000)
@@ -93,35 +87,35 @@ def safe_get(features, idx):
 def extract_multiple_transactions(features, base_row_data):
     """Extract multiple transactions from a single row, including the original"""
     transactions = []
-
+    
     # First, always add the original transaction (this is the base row data)
     transactions.append(base_row_data.copy())
-
+    
     # Then check for additional transactions starting from index 8
     transaction_index = 0
     while True:
         date_idx = 8 + (transaction_index * 2)
         price_idx = 9 + (transaction_index * 2)
-
+        
         transaction_date = safe_get(features, date_idx)
         transaction_price = safe_get(features, price_idx)
-
+        
         # If we get empty strings, we've reached the end
         if not transaction_date and not transaction_price:
             break
-
+            
         # Create a new row with the base data but updated date and price
         additional_transaction = base_row_data.copy()
-
+        
         # Update with the specific transaction data
         if transaction_date:
             additional_transaction['תאריך עסקה'] = transaction_date
         if transaction_price:
             additional_transaction['מחיר'] = transaction_price
-
+            
         transactions.append(additional_transaction)
         transaction_index += 1
-
+    
     return transactions
 
 
@@ -129,8 +123,7 @@ def save_checkpoint(data, seen_hashes, checkpoint_num, neighborhood_name):
     """Save checkpoint with both data and seen hashes - thread-safe"""
     with checkpoint_lock:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        checkpoint_file = os.path.join(CHECKPOINT_DIR,
-                                       f'checkpoint_{neighborhood_name}_{timestamp}_{checkpoint_num}.json')
+        checkpoint_file = os.path.join(CHECKPOINT_DIR, f'checkpoint_{neighborhood_name}_{timestamp}_{checkpoint_num}.json')
         checkpoint_data = {
             'data': data,
             'seen_hashes': list(seen_hashes),
@@ -190,7 +183,7 @@ def process_neighborhood(neighborhood_data):
     """Process a single neighborhood using direct URL navigation"""
     neighborhood_id = neighborhood_data["id"]
     neighborhood_name = neighborhood_data["name"]
-
+    
     thread_safe_log(f"Processing neighborhood: {neighborhood_name} (ID: {neighborhood_id})")
 
     browser = None
@@ -207,7 +200,7 @@ def process_neighborhood(neighborhood_data):
 
         # Create browser instance for this thread
         browser = create_browser()
-
+        
         # Navigate directly to the neighborhood deals page
         url = f'https://www.nadlan.gov.il/?view=neighborhood&id={neighborhood_id}&page=deals'
         thread_safe_log(f"Accessing URL: {url}")
@@ -250,8 +243,7 @@ def process_neighborhood(neighborhood_data):
                         table = tables[0]
                         break
                 except StaleElementReferenceException:
-                    thread_safe_log(f"Retrying to find mainTable (attempt {retry + 1}/3) for {neighborhood_name}...",
-                                    'warning')
+                    thread_safe_log(f"Retrying to find mainTable (attempt {retry + 1}/3) for {neighborhood_name}...", 'warning')
                     time.sleep(2)
 
             if not table:
@@ -301,20 +293,19 @@ def process_neighborhood(neighborhood_data):
                         inner_containers = table.find_elements(By.CLASS_NAME, "innerTablesContainer")
                         if inner_containers:
                             expanded_features = inner_containers[0].find_elements(By.CLASS_NAME, "innerTable__cell")
-
+                            
                             # Add the additional property details to base_row_data
                             base_row_data.update({
                                 'שנת בנייה': safe_get(expanded_features, 3),
                                 'מחיר למ"ר': safe_get(expanded_features, 4),
                                 'קומות במבנה': safe_get(expanded_features, 5)
                             })
-
+                            
                             # Extract all transactions (original + additional ones)
                             transactions = extract_multiple_transactions(expanded_features, base_row_data)
-
+                            
                     except Exception as e:
-                        thread_safe_log(f"Could not get expanded details for row {i} in {neighborhood_name}: {e}",
-                                        'warning')
+                        thread_safe_log(f"Could not get expanded details for row {i} in {neighborhood_name}: {e}", 'warning')
                         # If expansion fails, just use the original row
                         transactions = [base_row_data]
 
@@ -343,8 +334,7 @@ def process_neighborhood(neighborhood_data):
                         records_since_last_checkpoint = 0
 
                 except Exception as e:
-                    thread_safe_log(f"Error processing row {i} on page {page_num} for {neighborhood_name}: {e}",
-                                    'error')
+                    thread_safe_log(f"Error processing row {i} on page {page_num} for {neighborhood_name}: {e}", 'error')
                     continue
 
             # Check for next page
