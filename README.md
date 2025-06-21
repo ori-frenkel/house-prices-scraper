@@ -1,6 +1,6 @@
 # Haifa Real Estate Data Scraper
 
-This project scrapes and analyzes real estate transaction data from Haifa neighborhoods using the Israeli government's real estate database (nadlan.gov.il).
+This project scrapes and analyzes real estate transaction data from Haifa neighborhoods using the Israeli government's real estate database ([nadlan.gov.il](https://www.nadlan.gov.il/)).
 
 ## Important Note About Data Collection
 
@@ -29,7 +29,7 @@ houses-price/
 ## Features
 
 - Scrapes real estate transaction data from nadlan.gov.il
-- Multi-threaded scraping for better performance
+- Multi-threaded scraping for better performance (configurable via MAX_WORKERS)
 - Handles website's 100-page limitation through neighborhood-based collection
 - Checkpoint system for data recovery
 - Combines data from multiple neighborhoods
@@ -80,6 +80,7 @@ The collected data includes the following fields:
        {"id": "XXXXX", "name": "Neighborhood Name"},
        # Add more neighborhoods...
    ]
+   MAX_WORKERS = 4  # Configure number of parallel threads
    ```
 
 2. Run the scraper:
@@ -108,7 +109,6 @@ The script creates checkpoints during scraping. If the process is interrupted:
 
 ## Notes
 
-- The script respects the website's rate limits
 - Uses Selenium for dynamic content handling
 - Implements duplicate detection
 - Handles multiple transactions per property 
