@@ -7,7 +7,7 @@ This project scrapes and analyzes real estate transaction data from Haifa neighb
 Due to a limitation on the nadlan.gov.il website, each search can only access up to 100 pages (approximately 1,000 entries) of data. To work around this limitation, this project:
 1. Breaks down the data collection by neighborhoods
 2. Collects up to 100 pages of data for each neighborhood
-3. Uses the combine script (`combine_haifa_data.py`) to merge all neighborhood data into a single comprehensive dataset
+3. Uses the combine script (`csv_utils/combine_haifa_data.py`) to merge all neighborhood data into a single comprehensive dataset
 
 This approach ensures we can collect data beyond the 1,000-entry limitation while maintaining data integrity.
 
@@ -22,8 +22,10 @@ houses-price/
 ├── drivers/
 │   └── chromedriver-win64/  # Chrome WebDriver for Selenium
 ├── checkpoints/             # Checkpoint files for data recovery
-├── fetch_nadlan_data_id.py  # Main scraping script
-└── combine_haifa_data.py    # Data combination script
+├── csv_utils/              # CSV processing utilities
+│   ├── combine_haifa_data.py
+│   └── merge_haifa_parts.py
+└── fetch_nadlan_data_id.py  # Main scraping script
 ```
 
 ## Features
@@ -68,7 +70,9 @@ The collected data includes the following fields:
    ```bash
    pip install -r requirements.txt
    ```
-3. Ensure Chrome WebDriver is in the correct location (`drivers/chromedriver-win64/chromedriver.exe`)
+3. Chrome WebDriver:
+   - Default location: `drivers/chromedriver-win64/chromedriver.exe`
+   - You can change the path by updating the `DRIVER_PATH` variable in `fetch_nadlan_data_id.py`
 
 ## Usage
 
@@ -92,7 +96,7 @@ The collected data includes the following fields:
 
 To combine individual neighborhood files into a single dataset:
 ```bash
-python combine_haifa_data.py
+python csv_utils/combine_haifa_data.py
 ```
 
 ## Data Recovery
