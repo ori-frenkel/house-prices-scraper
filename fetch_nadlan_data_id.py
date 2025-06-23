@@ -25,13 +25,12 @@ logger = logging.getLogger(__name__)
 # Configuration
 DRIVER_PATH = 'drivers\\chromedriver-win64\\chromedriver.exe'
 NEIGHBORHOOD_IDS = [
-    {"id": "65210928", "name": "קרית חיים מערבית"},
-    {"id": "65210995", "name": "נוה יוסיף"},
+    {"id": "65210819", "name": "תל עמל"},
 ]
 CHECKPOINT_INTERVAL = 100  # Save every 100 records
 CHECKPOINT_DIR = 'checkpoints'
 DATA_DIR = 'data/gov'
-MAX_WORKERS = 2 # len(NEIGHBORHOOD_IDS)  # One thread per neighborhood
+MAX_WORKERS = 4 # len(NEIGHBORHOOD_IDS)  # One thread per neighborhood
 MAX_PAGES = 100  # Maximum number of pages to process
 
 # Create necessary directories
@@ -88,33 +87,23 @@ def extract_multiple_transactions(features, base_row_data):
     """Extract multiple transactions from a single row, including the original"""
     transactions = []
     
-    # First, always add the original transaction (this is the base row data)
+    # First, add the original transaction
     transactions.append(base_row_data.copy())
     
     # Then check for additional transactions starting from index 8
-    transaction_index = 0
-    while True:
-        date_idx = 8 + (transaction_index * 2)
-        price_idx = 9 + (transaction_index * 2)
-        
-        transaction_date = safe_get(features, date_idx)
-        transaction_price = safe_get(features, price_idx)
-        
-        # If we get empty strings, we've reached the end
-        if not transaction_date and not transaction_price:
-            break
-            
-        # Create a new row with the base data but updated date and price
+    previous_deals_index = 8
+    while safe_get(features, previous_deals_index):
+        # Create a new transaction with all the base data
         additional_transaction = base_row_data.copy()
         
-        # Update with the specific transaction data
-        if transaction_date:
-            additional_transaction['תאריך עסקה'] = transaction_date
-        if transaction_price:
-            additional_transaction['מחיר'] = transaction_price
+        # Update only the date and price from the additional transaction
+        if safe_get(features, previous_deals_index):
+            additional_transaction['תאריך עסקה'] = safe_get(features, previous_deals_index)
+        if safe_get(features, previous_deals_index + 1):
+            additional_transaction['מחיר'] = safe_get(features, previous_deals_index + 1)
             
         transactions.append(additional_transaction)
-        transaction_index += 1
+        previous_deals_index += 2
     
     return transactions
 
