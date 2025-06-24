@@ -25,12 +25,25 @@ logger = logging.getLogger(__name__)
 # Configuration
 DRIVER_PATH = 'drivers\\chromedriver-win64\\chromedriver.exe'
 NEIGHBORHOOD_IDS = [
-    {"id": "65210819", "name": "תל עמל"},
+    {"id": "65210996", "name": "מרכז הכרמל"}, 
+    {"id": "65210997", "name": "אזור תעשיה מפרץ"},
+    {"id": "65210998", "name": "כרמליה"}, 
+    # {"id": "65211028", "name": "כרמל צרפתי"},
+    # {"id": "65211029", "name": "כרמל מערבי"},
+    # {"id": "65211030", "name": "כבביר"}, 
+    # {"id": "65211031", "name": "יזרעאליה"}, 
+    # {"id": "65211032", "name": "חליסה"}, 
+    # {"id": "65211033", "name": "חיפה אל עתיקה"}, 
+    # {"id": "65211065", "name": "ורדיה"}, 
+    # {"id": "65211066", "name": "ואדי סאליב"},
+    # {"id": "65211067", "name": "ואדי ניסנאס"}, 
+    # {"id": "65211068", "name": "העיר התחתית"}, 
+    # {"id": "65211069", "name": "המושבה הגרמנית"}
 ]
 CHECKPOINT_INTERVAL = 100  # Save every 100 records
 CHECKPOINT_DIR = 'checkpoints'
 DATA_DIR = 'data/gov'
-MAX_WORKERS = 4 # len(NEIGHBORHOOD_IDS)  # One thread per neighborhood
+MAX_WORKERS = 3 # len(NEIGHBORHOOD_IDS)  # One thread per neighborhood
 MAX_PAGES = 100  # Maximum number of pages to process
 
 # Create necessary directories
@@ -61,20 +74,37 @@ def create_record_hash(record):
 
 
 def create_browser():
-    """Create a new Chrome browser instance with thread-safe options"""
+    """Create a new Chrome browser instance with thread-safe options and WebGL fallback fix"""
     service = Service(DRIVER_PATH)
     options = webdriver.ChromeOptions()
+    
+    # Prevent detection as automation
     options.add_argument('--disable-blink-features=AutomationControlled')
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
-    # Add thread-safe options for parallel execution
+    
+    # Sandbox and shared memory options for stability in parallel runs
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--remote-debugging-port=0')  # Use random port for each instance
+    
+    # IMPORTANT: Remove disable-gpu to allow hardware acceleration if available
+    # options.add_argument('--disable-gpu')  # Remove or comment out this line
+    
+    # Add the SwiftShader flags to fix WebGL fallback deprecation error
+    options.add_argument('--enable-unsafe-swiftshader')
+    options.add_argument('--use-gl=swiftshader')
+    
+    # Optional: run headless if you want (uncomment if needed)
+    # options.add_argument('--headless=new')
+    
+    # Use a random remote debugging port for parallel instances
+    options.add_argument('--remote-debugging-port=0')
     
     browser = webdriver.Chrome(service=service, options=options)
+    
+    # Hide webdriver property to avoid detection
     browser.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    
     browser.set_window_size(1500, 1000)
     return browser
 
